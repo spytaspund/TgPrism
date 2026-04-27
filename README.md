@@ -40,3 +40,6 @@
 6. Run TgPrism.py:
     
    `python3 TgPrism.py`
+
+
+###### _Psst!_ Check out [ReflectoGram](https://github.com/spytaspund/ReflectoGram)!
