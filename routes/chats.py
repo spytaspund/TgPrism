@@ -28,12 +28,13 @@ async def fetch_private_channel(client, pc_id: int):
     try:
         ch_entity = await client.get_entity(pc_id)
         full_ch, history = await gather(client(GetFullChannelRequest(ch_entity)), client.get_messages(ch_entity, limit=1))
+        last_post = history[0].message if history else None
         return {
             "id": ch_entity.id,
             "title": getattr(ch_entity, "title", "Channel"),
             "username": getattr(ch_entity, "username", None),
             "subs_count": getattr(full_ch.full_chat, "participants_count", 0),
-            "last_post": history[0].message if history else None
+            "last_post": last_post if last_post else "[Media]"
         }
     except Exception as e:
         current_app.logger.error(f"Error parsing private channel: {e}")
@@ -117,11 +118,10 @@ async def about_chat():
 
     client, session_data, args = data
     aes_key = session_data[0]
-    user_id = int(args["user_id"] if args["user_id"] else 0)
 
     try:
-        if user_id == "me": entity = await client.get_me() 
-        else:               entity = await client.get_entity(user_id)
+        if args["user_id"] == "me": entity = await client.get_me() 
+        else:               entity = await client.get_entity(int(args["user_id"] if args["user_id"] else 0))
 
         data = await get_about(entity, client)
         current_app.logger.debug(f"Sending: {data}")
