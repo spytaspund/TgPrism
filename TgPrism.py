@@ -1,5 +1,4 @@
 from quart import Quart, render_template, request, g
-from singbox2proxy import SingBoxProxy
 from rich.logging import RichHandler
 from rich.console import Console
 from routes.messages import bp_messages

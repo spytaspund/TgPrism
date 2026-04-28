@@ -6,3 +6,4 @@ qrcode
 pycryptodome
 python_dotenv
 python-socks
+rich
