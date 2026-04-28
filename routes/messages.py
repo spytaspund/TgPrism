@@ -76,7 +76,7 @@ def parse_message_types(message):
         case _: pass
     return message_data
 
-@bp_messages.route("/messages")
+@bp_messages.route("/messages", methods=["GET"])
 async def get_messages():
     res = await validate_input("session_id", "chat_id")
     if res[1]: return res[1]
@@ -108,7 +108,7 @@ async def get_messages():
         current_app.logger.error(f"Error getting messages: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@bp_messages.route("/avatar")
+@bp_messages.route("/avatar", methods=["GET"])
 async def get_avatar():
     res = await validate_input("session_id", "user_id")
     if res[1]: return res[1]
@@ -134,7 +134,7 @@ async def get_avatar():
         return jsonify({"error": str(e)}), 500
 
 
-@bp_messages.route("/get_media")
+@bp_messages.route("/get_media", methods=["GET"])
 async def get_media():
     res = await validate_input("session_id") # other args is optional!
     if res[1]: return res[1]

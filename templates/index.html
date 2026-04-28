@@ -1,52 +1,60 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TgPrism Status</title>
-    <style type="text/css">
-        body {
-            font-family: Helvetica, Arial, sans-serif;
-            background-color: #f4f4f4;
-            margin: 0;
-            padding: 20px;
-            text-align: center;
-            color: #333;
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #c5cdd4; margin: 0; padding: 20px; text-align: center; }
+        .container { background: #fff; border-radius: 10px; border: 1px solid #999; padding: 20px; max-width: 350px; margin: 0 auto; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        h1 { color: #000; font-size: 22px; text-shadow: 0 1px 0 #fff; margin-bottom: 5px; }
+        .version { color: #666; font-size: 14px; margin-bottom: 20px; }
+        
+        .btn { 
+            display: block; margin: 10px 0; padding: 12px; 
+            text-decoration: none !important; 
+            color: #ffffff !important;
+            font-weight: bold; font-size: 16px;
+            border-radius: 8px; border: 1px solid #14396a;
+            
+            background: #1e4284;
+            background: -webkit-gradient(linear, left top, left bottom, from(#738aba), color-stop(0.5, #2c4982), color-stop(0.51, #18336d), to(#1e4284));
+            background: -webkit-linear-gradient(top, #738aba 0%, #2c4982 50%, #18336d 51%, #1e4284 100%);
+            
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.3);
         }
-        .container {
-            background-color: #ffffff;
-            border: 1px solid #cccccc;
-            padding: 20px;
-            margin: 0 auto;
-            max-width: 400px;
+
+        .btn-green {
+            background: #659909;
+            background: -webkit-gradient(linear, left top, left bottom, from(#94d317), color-stop(0.5, #689b0a), color-stop(0.51, #5a8708), to(#659909));
+            background: -webkit-linear-gradient(top, #94d317 0%, #689b0a 50%, #5a8708 51%, #659909 100%);
+            border-color: #456905;
         }
-        h1 {
-            color: #007aff;
-            font-size: 24px;
-            margin-bottom: 10px;
-        }
-        p {
-            font-size: 16px;
-            line-height: 1.4;
-        }
-        .footer {
-            margin-top: 20px;
-            font-size: 12px;
-            color: #888;
-        }
+        .btn:active { opacity: 0.8; }
+        
+        .links { margin-top: 20px; border-top: 1px solid #ccc; padding-top: 15px; }
+        .links a { color: #385487; text-decoration: none; font-size: 14px; margin: 0 10px; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <div class="container">
         <h1>TgPrism</h1>
-        
-        <p>If you see this page, it means that <strong>API is working properly</strong> and the connection is stable!</p>
-        
-        <div class="footer">
-            - <strong>spytaspund</strong>
+        <div class="version">ReflectoGram latest Release: <b>{{ version }}</b></div>
+
+        <a href="itms-services://?action=download-manifest&url=http://{{ request.host }}/install/manifest.plist?url={{ ipa_url }}" class="btn btn-green">
+            Install App
+        </a>
+
+        <a href="{{ ipa_url }}" class="btn">Download .ipa</a>
+
+        <div class="links">
+            <a href="https://github.com/spytaspund/ReflectoGram">Client GitHub</a>
+            <a href="https://github.com/spytaspund/TgPrism">Backend GitHub</a>
         </div>
     </div>
+
+    <p style="font-size: 12px; color: #555; margin-top: 20px;">API is up and running!</p>
 
 </body>
 </html>

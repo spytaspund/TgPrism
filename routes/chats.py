@@ -109,7 +109,7 @@ async def get_about(entity, client):
         "members": results["members"]
     }
 
-@bp_chats.route("/about")
+@bp_chats.route("/about", methods=["GET"])
 async def about_chat():
     res = await validate_input("session_id", "user_id")
     if res[1]: return res[1]
@@ -124,13 +124,12 @@ async def about_chat():
         else:               entity = await client.get_entity(int(args["user_id"] if args["user_id"] else 0))
 
         data = await get_about(entity, client)
-        current_app.logger.debug(f"Sending: {data}")
         binary_payload = encrypt_binary(data, aes_key)
         return Response(binary_payload, mimetype="application/octet-stream")
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@bp_chats.route("/chats")
+@bp_chats.route("/chats", methods=["GET"])
 async def get_chats():
     res = await validate_input("session_id")
     if res[1]: return res[1]

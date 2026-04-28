@@ -95,7 +95,7 @@ async def validate_input(*required_args):
     if not client: return None, await make_response(jsonify({"error": "Telegram client not authorized"}), 401)
     return (client, session_data, args), None
 
-@bp_client.route("/qr")
+@bp_client.route("/qr", methods=["GET"])
 async def qr_init():
     session_id = str(uuid.uuid4())
     aes_key = os.urandom(16)
