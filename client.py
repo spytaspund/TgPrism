@@ -9,7 +9,7 @@ active_clients = {}
 bp_client = Blueprint("client", __name__)
 login_lock = asyncio.Lock()
 cfg = Config()
-proxy = {"proxy_type": "socks5", "addr": cfg.PROXY_ADDR, "port": cfg.PROXY_PORT}
+proxy = {"proxy_type": "socks5", "addr": "127.0.0.1", "port": cfg.PROXY_PORT}
 
 async def wait_for_scan_task(qr_login, session_id):
     try:

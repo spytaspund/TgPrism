@@ -10,7 +10,7 @@ class Config():
         self.SESSIONS_DIR = getenv("SESSIONS_DIR", "sessions")
         self.SERVER_PORT = int(getenv("SERVER_PORT", 4848))
         self.PROXY_PORT = int(getenv("PROXY_PORT", 1515))
-        self.PROXY_ADDR = getenv("PROXY_ADDR", "")
+        self.VLESS_SUB = getenv("VLESS_SUB", "")
         self.LOG_LEVEL = getenv("LOG_LEVEL", "INFO").upper()
         if not path.exists(self.SESSIONS_DIR):
             makedirs(self.SESSIONS_DIR)

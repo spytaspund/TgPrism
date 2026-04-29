@@ -8,3 +8,5 @@ python_dotenv
 python-socks
 rich
 httpx
+socksio
+singbox2proxy

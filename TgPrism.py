@@ -5,11 +5,15 @@ from routes.messages import bp_messages
 from routes.chats import bp_chats
 from client import bp_client
 from config import Config
+from connection import VlessBalancer
 import logging, time, db, httpx
 
 app = Quart(__name__)
 cfg = Config()
 console = Console()
+app.config['CONSOLE'] = console
+balancer = VlessBalancer(sub_url=cfg.VLESS_SUB, check_interval=3600)
+app.config['BALANCER'] = balancer
 logging.basicConfig(
     level=cfg.LOG_LEVEL,
     format="%(message)s",
@@ -20,6 +24,7 @@ logging.basicConfig(
 @app.before_serving
 async def startup():
     await db.init_db()
+    app.add_background_task(balancer.start_loop)
 
 @app.route("/")
 async def helloPage():
@@ -68,6 +73,8 @@ if __name__ == "__main__":
     logging.getLogger("hypercorn.access").disabled = True
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
     logging.getLogger("telethon").setLevel(logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     app.register_blueprint(bp_chats)
     app.register_blueprint(bp_messages)
     app.register_blueprint(bp_client)
