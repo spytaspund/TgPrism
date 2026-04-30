@@ -60,20 +60,25 @@ class VlessBalancer:
 
     async def check_telegram(self, proxy_url: str) -> float:
         try:
-            await asyncio.sleep(0.1) 
-            start = time.perf_counter()
+            return await asyncio.wait_for(self._internal_check(proxy_url), timeout=1.1)
+        except (asyncio.TimeoutError, Exception):
+            return 9999.0
+    
+    async def _internal_check(self, proxy_url: str) -> float:
+        start = time.perf_counter()
+        try:
+            limits = httpx.Timeout(1.0, connect=0.8) 
             async with httpx.AsyncClient(
                 proxy=proxy_url, 
-                timeout=3.0, 
-                follow_redirects=True
+                timeout=limits, 
+                follow_redirects=False,
+                verify=False
             ) as client:
                 resp = await client.get("https://api.telegram.org/bot/getMe")
                 if resp.status_code < 500: 
-                    latency = (time.perf_counter() - start) * 1000
-                    return latency
-                    
-        except Exception as e:
-            current_app.logger.debug(f"Proxy {proxy_url} failed: {e}")
+                    return (time.perf_counter() - start) * 1000
+        except Exception:
+            pass
         return 9999.0
 
     async def run_balancer_cycle(self):
@@ -101,7 +106,7 @@ class VlessBalancer:
             results = []
             for proxy in batch:
                 latency = await self.check_telegram(proxy.socks_url)
-                if latency < 3000:
+                if latency < 1000:
                     results.append((proxy.url, latency))
                 progress.advance(task2)
                 
