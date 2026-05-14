@@ -3,17 +3,16 @@ from rich.logging import RichHandler
 from rich.console import Console
 from routes.messages import bp_messages
 from routes.chats import bp_chats
-from client import bp_client
+from client import bp_client, proxy_manager
 from config import Config
-from connection import VlessBalancer
 import logging, time, db, httpx
 
 app = Quart(__name__)
 cfg = Config()
 console = Console()
 app.config['CONSOLE'] = console
-balancer = VlessBalancer(sub_url=cfg.VLESS_SUB, check_interval=3600)
-app.config['BALANCER'] = balancer
+app.config['PROXY_MANAGER'] = proxy_manager
+
 logging.basicConfig(
     level=cfg.LOG_LEVEL,
     format="%(message)s",
@@ -24,7 +23,7 @@ logging.basicConfig(
 @app.before_serving
 async def startup():
     await db.init_db()
-    app.add_background_task(balancer.start_loop)
+    app.add_background_task(proxy_manager.start_loop)
 
 @app.route("/")
 async def helloPage():
@@ -32,14 +31,14 @@ async def helloPage():
     latest_version = "No Release"
     ipa_url = "#"
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(repo_url)
             if response.status_code == 200:
                 releases = response.json()
                 if releases:
                     latest_data = releases[0] 
                     latest_version = latest_data.get('tag_name', 'Unknown')
-                    if latest_data.get('prerelease'): latest_version += " (Pre-release)"
+                    if latest_data.get('prerelease'):  latest_version += " (Pre-release)"
                     for asset in latest_data.get('assets', []):
                         if asset['name'].endswith('.ipa'):
                             ipa_url = asset['browser_download_url']
@@ -52,7 +51,6 @@ async def helloPage():
 async def manifest():
     return await render_template("manifest.xml", ipa_url=request.args.get("url", "")), 200, {'Content-Type': 'application/xml'}
 
-# logging things
 @app.before_request
 async def start_timer():
     g.start_time = time.time()
@@ -60,7 +58,7 @@ async def start_timer():
 @app.after_request
 async def log_request(response):
     if request.path != "/favicon.ico":
-        process_time = (time.time() - g.start_time) * 1000
+        process_time = (time.time() - getattr(g, 'start_time', time.time())) * 1000
         method = f"{request.method:<7}"
         path = f"{request.path:<25}"
         addr = f"({request.remote_addr})"
@@ -69,12 +67,11 @@ async def log_request(response):
     return response
 
 if __name__ == "__main__":
-    logging.getLogger("quart.serving").disabled = True
     logging.getLogger("hypercorn.access").disabled = True
-    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+    for logger_name in ["quart.serving", "httpx", "httpcore"]:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+    logging.getLogger("aiosqlite").setLevel(logging.ERROR)
     logging.getLogger("telethon").setLevel(logging.INFO)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
     app.register_blueprint(bp_chats)
     app.register_blueprint(bp_messages)
     app.register_blueprint(bp_client)
