@@ -1,0 +1,5 @@
+sessions/
+prism.db
+__pycache__/
+*.session
+*.session-journal
