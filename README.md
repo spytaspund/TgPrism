@@ -24,7 +24,7 @@
    `source .venv/bin/activate`
 4. Install dependencies:
    
-   `pip install -r requierments.txt`
+   `pip install -r requirements.txt`
 5. Configure the server:
    1. Create .env file with following contents:
       ```ini
@@ -32,8 +32,10 @@
       API_HASH=your_api_hash_get_it_from_my_telegram_org
       SESSIONS_DIR=sessions
       SERVER_PORT=4848
-      PROXY_ADDR="127.0.0.1"
-      PROXY_PORT=1234
+      PROXY_TYPE=off_or_local_or_remote
+      PROXY_PORT=2828
+      PROXY_ADDR="your_proxy_addr_ONLY_FOR_REMOTE_TYPE"
+      SINGBOX_SUB="your_glorious_sub_ONLY_FOR_LOCAL_TYPE"
       LOG_LEVEL=info
       ```
    2. Edit the file to suit your needs
