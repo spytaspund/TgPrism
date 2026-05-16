@@ -26,7 +26,8 @@ class ProxyManager:
     async def get_proxies_from_sub(self) -> list:
         if not cfg.SINGBOX_SUB: return []
         try:
-            current_app.logger.info(f"Downloading subscription: {cfg.SINGBOX_SUB}")
+            clean_url = cfg.SINGBOX_SUB.replace("\n", "").replace("\r", "").strip() # sanitize url
+            current_app.logger.info(f"Downloading subscription: '{clean_url}' (Len: {len(clean_url)})")
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(cfg.SINGBOX_SUB)
                 text = resp.text
@@ -41,6 +42,7 @@ class ProxyManager:
                 if any(line.startswith(proto) for proto in self.supported_protocols):
                     line = line.replace("xtls-rprx-vision-udp443", "xtls-rprx-vision") # lib doesn't support it
                     if "vision" in line: continue # doesn't work well with MTProto
+                    if "plugin=" in line: continue # yeah also has issues
                     urls.append(line)
             
             current_app.logger.info(f"Found {len(urls)} potential servers")
@@ -102,8 +104,6 @@ class ProxyManager:
 
         results.sort(key=lambda x: x[1])
         best_url, best_ping = results[0]
-
-        current_app.logger.info(f"Best candidate: {best_ping:.1f}ms")
         
         if self.active_proxy and self.best_latency < 450:
             if best_ping > (self.best_latency - 100):

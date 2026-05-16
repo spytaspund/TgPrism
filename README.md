@@ -7,10 +7,38 @@
 ### Features:
 - **Security**: JSON responses are encrypted with AES-128, and media files have URLs signed with specific token which only server and client know. Man-In-The-Middle attacks are useless in this scenario.
 
-  ___Please note:___ While I implemented some basic security to this project, it doesn't mean it's invulnerable. Instance owners can still use your .session files however they want, maybe there are other vulnerabilities that I didn't notice, and it is very likely. **I am not responsible for any damage caused by using this code.
+  ___Please note:___ While I implemented some basic security to this project, it doesn't mean it's invulnerable. Instance owners can still use your .session files however they want, maybe there are other vulnerabilities that I didn't notice, and it is very likely. **I am not responsible for any damage caused by using this code**.
 - **Versatility**: Server communicate in HTTP with basic responses such as JSON, request headers and plain images. It means that clients can be done with almost any device that can handle AES-128 encoding and decoding.
 
-### Deployment:
+### Deployment methods:
+#### Docker (compose, Hypercorn server, fast):
+1. Clone the repo:
+
+   `git clone https://github.com/spytaspund/TgPrism`
+2. Navigate to the cloned folder and create .env file:
+   `cd TgPrism`
+   ```ini
+   API_ID=your_api_id_get_it_from_my_telegram_org
+   API_HASH=your_api_hash_get_it_from_my_telegram_org
+   SESSIONS_DIR=sessions
+   SERVER_PORT=4848
+   PROXY_TYPE=off_or_local_or_remote
+   PROXY_PORT=2828
+   PROXY_ADDR="your_proxy_addr_ONLY_FOR_REMOTE_TYPE"
+   SINGBOX_SUB="your_glorious_sub_ONLY_FOR_LOCAL_TYPE"
+   LOG_LEVEL=info
+   ```
+
+3. Build Docker image:
+
+   `docker compose build`
+4. Run docker compose:
+   
+   `docker compose up -d`
+* You can rebuild and run it with this command:
+
+   `docker compose up --build -d`
+#### Python (venv, Quart server, slow):
 1. Clone the repo:
    
    `git clone https://github.com/spytaspund/TgPrism`

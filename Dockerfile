@@ -2,7 +2,7 @@ FROM python:3.13-slim
 
 USER root
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     ca-certificates \
     tar \
@@ -14,22 +14,15 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m -u 1000 user
 WORKDIR /app
 
-COPY --chown=user requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
-COPY --chown=user . .
+COPY . .
 
-RUN chown -R user:user /app
+RUN mkdir -p /app/sessions /app/data
 
-USER user
-ENV PATH="/home/user/.local/bin:$PATH"
+EXPOSE 8000
 
-CMD ["sh", "-c", "rm -rf /app/prism.db /app/sessions && \
-    mkdir -p /data/sessions && \
-    touch /data/prism.db && \
-    ln -s /data/prism.db /app/prism.db && \
-    ln -s /data/sessions /app/sessions && \
-    python TgPrism.py"]
+CMD ["sh", "-c", "hypercorn TgPrism:app --bind 0.0.0.0:${SERVER_PORT:-8000} --access-log -"]

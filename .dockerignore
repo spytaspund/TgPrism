@@ -1,5 +1,18 @@
+# same as .gitignore
+.venv/
+env/
+venv/
+ENV/
+
 sessions/
+data/
 prism.db
-__pycache__/
 *.session
 *.session-journal
+
+__pycache__/
+*.log
+logs/
+.git
+.gitignore
+.dockerignore

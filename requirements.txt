@@ -5,8 +5,9 @@ pillow
 qrcode
 pycryptodome
 python_dotenv
-python-socks
+python-socks[asyncio]
 rich
 httpx
 socksio
 singbox2proxy
+hypercorn

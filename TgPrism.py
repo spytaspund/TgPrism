@@ -10,8 +10,6 @@ import logging, time, db, httpx
 app = Quart(__name__)
 cfg = Config()
 console = Console()
-app.config['CONSOLE'] = console
-app.config['PROXY_MANAGER'] = proxy_manager
 
 logging.basicConfig(
     level=cfg.LOG_LEVEL,
@@ -19,6 +17,17 @@ logging.basicConfig(
     datefmt="[%X]",
     handlers=[RichHandler(rich_tracebacks=True, console=console, show_path=False, markup=True)]
 )
+logging.getLogger("hypercorn.access").disabled = True
+logging.getLogger("aiosqlite").setLevel(logging.ERROR)
+logging.getLogger("telethon").setLevel(logging.INFO)
+for logger_name in ["quart.serving", "httpx", "httpcore"]:
+    logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+app.config['CONSOLE'] = console
+app.config['PROXY_MANAGER'] = proxy_manager
+app.register_blueprint(bp_chats)
+app.register_blueprint(bp_messages)
+app.register_blueprint(bp_client)
 
 @app.before_serving
 async def startup():
@@ -67,12 +76,4 @@ async def log_request(response):
     return response
 
 if __name__ == "__main__":
-    logging.getLogger("hypercorn.access").disabled = True
-    for logger_name in ["quart.serving", "httpx", "httpcore"]:
-        logging.getLogger(logger_name).setLevel(logging.WARNING)
-    logging.getLogger("aiosqlite").setLevel(logging.ERROR)
-    logging.getLogger("telethon").setLevel(logging.INFO)
-    app.register_blueprint(bp_chats)
-    app.register_blueprint(bp_messages)
-    app.register_blueprint(bp_client)
     app.run(host="0.0.0.0", port=cfg.SERVER_PORT, debug=False)

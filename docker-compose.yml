@@ -1,0 +1,17 @@
+services:
+  tgprism:
+    build: .
+    container_name: tgprism
+    restart: always
+    ports:
+      - "${SERVER_PORT:-8000}:${SERVER_PORT:-8000}"
+    volumes:
+      - ./sessions:/app/sessions
+      - ./data:/app/data
+    environment:
+      - LOG_LEVEL
+      - PROXY_TYPE
+      - SERVER_PORT
+      - SINGBOX_SUB
+      - API_ID
+      - API_HASH
