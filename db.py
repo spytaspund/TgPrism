@@ -1,7 +1,8 @@
-import aiosqlite
+import aiosqlite, config, os.path
 from contextlib import asynccontextmanager
 
-DB_NAME = "prism.db"
+cfg = config.Config()
+DB_NAME = os.path.join(cfg.SESSIONS_DIR, "prism.db")
 
 @asynccontextmanager
 async def get_db():

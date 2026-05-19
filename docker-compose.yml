@@ -7,7 +7,6 @@ services:
       - "${SERVER_PORT:-8000}:${SERVER_PORT:-8000}"
     volumes:
       - ./sessions:/app/sessions
-      - ./prism.db:/app/prism.db
     environment:
       - LOG_LEVEL
       - PROXY_TYPE
