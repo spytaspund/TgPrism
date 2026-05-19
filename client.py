@@ -15,17 +15,6 @@ login_lock = asyncio.Lock()
 cfg = Config()
 proxy_manager = ProxyManager()
 
-async def ensure_connection(client):
-    for attempt in range(3):
-        try:
-            if cfg.PROXY_TYPE == "local": await asyncio.sleep(1)
-            await asyncio.wait_for(client.connect(), timeout=12)
-            return True
-        except (ConnectionError, asyncio.TimeoutError) as e:
-            current_app.logger.warning(f"Connection attempt {attempt+1} failed: {e}")
-            await asyncio.sleep(2)
-    return False
-
 async def get_client(session_id, session_data=None):
     if session_id in active_clients:
         client = active_clients[session_id]
@@ -132,3 +121,16 @@ async def validate_input(*required_args):
         return None, await make_response(jsonify({"error": "Not authorized"}), 401)
     
     return (client, session_data, args), None
+
+async def ensure_connection(client):
+    for attempt in range(3):
+        try:
+            if cfg.PROXY_TYPE == "local": await asyncio.sleep(1)
+            await asyncio.wait_for(client.connect(), timeout=12)
+            return True
+        except (ConnectionError, asyncio.TimeoutError) as e:
+            current_app.logger.warning(f"Connection attempt {attempt+1} failed: {e}")
+            await asyncio.sleep(2)
+    current_app.logger.error("All connection attempts failed. Starting forced rebalance...")
+    proxy_manager.trigger_rebalance()
+    return False

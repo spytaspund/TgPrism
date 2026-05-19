@@ -12,6 +12,9 @@ class ProxyManager:
         self.best_latency: float = 9999.0
         self.is_running = False
         self.supported_protocols = ["vless://", "ss://", "trojan://", "hysteria2://", "tuic://", "hy2://"]
+        self._rebalance_event = asyncio.Event()
+        self._last_balance_time = 0.0
+        self.is_balancing = False
 
     def get_telethon_proxy(self) -> dict[str, Any] | None:
         if cfg.PROXY_TYPE == "off": return None
@@ -126,7 +129,15 @@ class ProxyManager:
             current_app.logger.info(f"Proxy switched successfully on port {cfg.PROXY_PORT}")
         except Exception as e:
             current_app.logger.error(f"Failed to switch proxy: {e}")
-
+    
+    def trigger_rebalance(self) -> bool:
+        if cfg.PROXY_TYPE != "local": return False
+        if self.is_balancing or (time.time() - self._last_balance_time < 45):
+            return False
+            
+        self._rebalance_event.set()
+        return True
+    
     async def start_loop(self):
         if cfg.PROXY_TYPE != "local":
             current_app.logger.info(f"Proxy mode: {cfg.PROXY_TYPE}. Balancer loop skipped.")
@@ -134,9 +145,17 @@ class ProxyManager:
 
         self.is_running = True
         current_app.logger.info("Starting Proxy Balancer loop...")
+        
         while self.is_running:
             try:
+                self.is_balancing = True
                 await self.run_balancer_cycle()
-            except Exception as e:
-                current_app.logger.error(f"Balancer loop error: {e}")
-            await asyncio.sleep(3600)
+                self._last_balance_time = time.time()
+            except Exception as e: current_app.logger.error(f"Balancer loop error: {e}")
+            finally: self.is_balancing = False
+
+            try:
+                await asyncio.wait_for(self._rebalance_event.wait(), timeout=3600)
+                self._rebalance_event.clear()
+                current_app.logger.warning("Connection failure! Starting forced rebalance...")
+            except asyncio.TimeoutError: pass
