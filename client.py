@@ -18,10 +18,9 @@ proxy_manager = ProxyManager()
 async def get_client(session_id, session_data=None):
     if session_id in active_clients:
         client = active_clients[session_id]
-        if client.is_connected():
-            return client
-        if await ensure_connection(client):
-            return client
+        if client.is_connected():           return client
+        if await ensure_connection(client): return client
+        else:                               del active_clients[session_id]
 
     async with login_lock:
         if not session_data:
@@ -87,6 +86,7 @@ async def qr_init():
         resp.headers["X-AES-Key"] = aes_key.hex()
         return resp
 
+    except (ConnectionError, asyncio.TimeoutError, asyncio.IncompleteReadError) as e: raise e
     except Exception as e:
         current_app.logger.error(f"QR Init Critical Error: {e}", exc_info=True)
         return jsonify({"error": "Internal Server Error"}), 500
@@ -96,6 +96,12 @@ async def wait_for_login(qr_obj, session_id):
         await qr_obj.wait()
         await db.activate_session(session_id)
         current_app.logger.info(f"Session {session_id} successfully authorized!")
+    except (ConnectionError, asyncio.TimeoutError, asyncio.IncompleteReadError) as e:
+        current_app.logger.warning(f"Network drop while waiting for QR (0 bytes): {e}")
+        proxy_manager.trigger_rebalance()
+        if session_id in active_clients:
+            await active_clients[session_id].disconnect()
+            del active_clients[session_id]
     except Exception as e:
         current_app.logger.error(f"Wait for login failed for {session_id}: {e}")
         if session_id in active_clients:
@@ -117,7 +123,18 @@ async def validate_input(*required_args):
         return None, await make_response(jsonify({"error": "Invalid session"}), 403)
 
     client = await get_client(session_id, session_data)
-    if not client or not await client.is_user_authorized():
+    if not client:
+        return None, await make_response(jsonify({"error": "Not authorized"}), 401)
+    
+    try: is_auth = await client.is_user_authorized()
+    except (ConnectionError, asyncio.TimeoutError, asyncio.IncompleteReadError) as e:
+        current_app.logger.error(f"MTProto connection error (possibly proxy failure?): {e}")
+        proxy_manager.trigger_rebalance()
+        if session_id in active_clients:
+            del active_clients[session_id]
+        return None, await make_response(jsonify({"error": "Proxy connection lost. Retrying..."}), 503)
+
+    if not is_auth:
         return None, await make_response(jsonify({"error": "Not authorized"}), 401)
     
     return (client, session_data, args), None
@@ -128,9 +145,10 @@ async def ensure_connection(client):
             if cfg.PROXY_TYPE == "local": await asyncio.sleep(1)
             await asyncio.wait_for(client.connect(), timeout=12)
             return True
-        except (ConnectionError, asyncio.TimeoutError) as e:
+        except (ConnectionError, asyncio.TimeoutError, asyncio.IncompleteReadError) as e:
             current_app.logger.warning(f"Connection attempt {attempt+1} failed: {e}")
             await asyncio.sleep(2)
+            
     current_app.logger.error("All connection attempts failed. Starting forced rebalance...")
     proxy_manager.trigger_rebalance()
     return False

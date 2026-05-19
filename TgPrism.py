@@ -34,16 +34,6 @@ async def startup():
     await db.init_db()
     app.add_background_task(proxy_manager.start_loop)
 
-@app.errorhandler(ConnectionError)
-@app.errorhandler(asyncio.TimeoutError)
-async def handle_tg_network_errors(error):
-    app.logger.critical(f"Telegram connection failed: {error}")
-    app.config["PROXY_MANAGER"].trigger_rebalance()
-    return jsonify({
-        "error": "Telegram connection lost. Forced rebalance started. Keep trying!",
-        "details": str(error)
-    }), 503
-
 @app.route("/")
 async def helloPage():
     repo_url = "https://api.github.com/repos/spytaspund/ReflectoGram/releases"
