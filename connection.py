@@ -108,10 +108,16 @@ class ProxyManager:
         results.sort(key=lambda x: x[1])
         best_url, best_ping = results[0]
         
-        if self.active_proxy and self.best_latency < 450:
-            if best_ping > (self.best_latency - 100):
-                current_app.logger.info(f"Current proxy is stable ({self.best_latency:.0f}ms). No switch needed.")
-                return
+        if self.active_proxy:
+            current_ping = await self.check_telegram(str(self.active_proxy.socks5_proxy_url)) # pylance you ok? ok? hai? hello?
+            self.best_latency = current_ping
+            
+            if current_ping < 450:
+                if best_ping > (current_ping - 100):
+                    current_app.logger.info(f"Current proxy is stable ({current_ping:.0f}ms). No switch needed.")
+                    return
+            else:
+                current_app.logger.warning(f"Active proxy degraded/died ({current_ping:.0f}ms). Switching...")
 
         current_app.logger.info(f"[bold green]Switching to {best_url[:20]}... ({best_ping:.1f}ms)")
         try:

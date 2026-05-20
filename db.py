@@ -8,15 +8,15 @@ DB_NAME = os.path.join(cfg.SESSIONS_DIR, "prism.db")
 async def get_db():
     db = await aiosqlite.connect(DB_NAME, timeout=30)
     try:
-        await db.execute("PRAGMA journal_mode=WAL;")
-        await db.execute("PRAGMA synchronous=NORMAL;")
         db.row_factory = aiosqlite.Row
         yield db
     finally:
         await db.close()
 
 async def init_db():
-    async with get_db() as db:
+    async with aiosqlite.connect(DB_NAME, timeout=30) as db:
+        await db.execute("PRAGMA journal_mode=WAL;")
+        await db.execute("PRAGMA synchronous=NORMAL;")
         await db.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
