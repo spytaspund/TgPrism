@@ -5,6 +5,7 @@ import asyncio
 from io import BytesIO
 from quart import Blueprint, send_file, current_app, request, jsonify, make_response
 from telethon import TelegramClient
+from sqlite3 import OperationalError
 from config import Config
 from connection import ProxyManager
 import db
@@ -34,8 +35,9 @@ async def get_client(session_id, session_data=None):
             "session": session_path,
             "api_id": cfg.API_ID,
             "api_hash": cfg.API_HASH,
-            "connection_retries": 2,
-            "retry_delay": 2
+            "connection_retries": 0,
+            "retry_delay": 0,
+            "auto_reconnect": False
         }
         if client_proxy: client_args["proxy"] = client_proxy
         client = TelegramClient(**client_args) # all of that to silence linter
@@ -54,9 +56,12 @@ async def qr_init():
     current_app.logger.info(f"Generating QR for new session: {session_id}")
     
     client_args = {
-        'session': os.path.join(cfg.SESSIONS_DIR, session_file),
-        'api_id': cfg.API_ID,
-        'api_hash': cfg.API_HASH
+        "session": os.path.join(cfg.SESSIONS_DIR, session_file),
+        "api_id": cfg.API_ID,
+        "api_hash": cfg.API_HASH,
+        "connection_retries": 0,
+        "retry_delay": 0,
+        "auto_reconnect": False
     }
     proxy = proxy_manager.get_telethon_proxy()
     if proxy: client_args['proxy'] = proxy
@@ -140,15 +145,21 @@ async def validate_input(*required_args):
     return (client, session_data, args), None
 
 async def ensure_connection(client):
+    if client.is_connected(): return True
     for attempt in range(3):
         try:
-            if cfg.PROXY_TYPE == "local": await asyncio.sleep(1)
-            await asyncio.wait_for(client.connect(), timeout=12)
+            await asyncio.wait_for(client.connect(), timeout=8)
             return True
-        except (ConnectionError, asyncio.TimeoutError, asyncio.IncompleteReadError) as e:
+        except (OSError, asyncio.TimeoutError, OperationalError) as e:
             current_app.logger.warning(f"Connection attempt {attempt+1} failed: {e}")
-            await asyncio.sleep(2)
             
-    current_app.logger.error("All connection attempts failed. Starting forced rebalance...")
+            current_app.logger.info("Connection failed! Switching proxy...")
+            new_proxy = proxy_manager.get_telethon_proxy()
+            if new_proxy:
+                client.set_proxy(new_proxy)
+            
+            await asyncio.sleep(1.5)
+
+    current_app.logger.error("All connection attempts failed. Starting rebalance...")
     proxy_manager.trigger_rebalance()
     return False
