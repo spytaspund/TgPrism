@@ -3,8 +3,10 @@ import uuid
 import qrcode
 import asyncio
 from io import BytesIO
+from collections import defaultdict
 from quart import Blueprint, send_file, current_app, request, jsonify, make_response
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 from sqlite3 import OperationalError
 from config import Config
 from connection import ProxyManager
@@ -12,16 +14,32 @@ import db
 
 bp_client = Blueprint("client", __name__)
 active_clients = {}
+
+session_locks = defaultdict(asyncio.Lock)
 login_lock = asyncio.Lock()
 cfg = Config()
 proxy_manager = ProxyManager()
 
+@bp_client.before_app_serving
+async def start_garbage_collector():
+    async def session_garbage_collector():
+        while True:
+            try:
+                await db.cleanup_old_sessions(days_inactive=30)
+                current_app.logger.info("Database cleaned: old sessions removed.")
+            except Exception as e:
+                current_app.logger.error(f"Garbage collector error: {e}")
+            await asyncio.sleep(86400)
+            
+    current_app.add_background_task(session_garbage_collector)
+
 async def get_client(session_id, session_data=None):
-    if session_id in active_clients:
-        client = active_clients[session_id]
-        if client.is_connected():           return client
-        if await ensure_connection(client): return client
-        else:                               del active_clients[session_id]
+    async with session_locks[session_id]:
+        if session_id in active_clients:
+            client = active_clients[session_id]
+            if client.is_connected():           return client
+            if await ensure_connection(client): return client
+            else:                               del active_clients[session_id]
 
     async with login_lock:
         if not session_data:
@@ -29,10 +47,10 @@ async def get_client(session_id, session_data=None):
         if not session_data:
             return None
 
-        session_path = os.path.join(cfg.SESSIONS_DIR, session_data[1])
+        session_str = session_data[1]
         client_proxy = proxy_manager.get_telethon_proxy()
         client_args = {
-            "session": session_path,
+            "session": StringSession(session_str),
             "api_id": cfg.API_ID,
             "api_hash": cfg.API_HASH,
             "connection_retries": 0,
@@ -40,7 +58,7 @@ async def get_client(session_id, session_data=None):
             "auto_reconnect": False
         }
         if client_proxy: client_args["proxy"] = client_proxy
-        client = TelegramClient(**client_args) # all of that to silence linter
+        client = TelegramClient(**client_args)
         
         if await ensure_connection(client):
             active_clients[session_id] = client
@@ -51,12 +69,11 @@ async def get_client(session_id, session_data=None):
 async def qr_init():
     session_id = str(uuid.uuid4())
     aes_key = os.urandom(16)
-    session_file = f"refraction_{session_id}"
     
     current_app.logger.info(f"Generating QR for new session: {session_id}")
     
     client_args = {
-        "session": os.path.join(cfg.SESSIONS_DIR, session_file),
+        "session": StringSession(),
         "api_id": cfg.API_ID,
         "api_hash": cfg.API_HASH,
         "connection_retries": 0,
@@ -70,16 +87,16 @@ async def qr_init():
 
     try:
         if not await ensure_connection(client):
-            return jsonify({"error": "Failed to connect to Telegram servers (Proxy issue?)"}), 503
+            return jsonify({"error": "Failed to connect to Telegram servers"}), 503
 
         qr_obj = await asyncio.wait_for(client.qr_login(), timeout=15)
         if not qr_obj:
             return jsonify({"error": "QR generation failed"}), 500
 
         active_clients[session_id] = client
-        await db.create_pending_session(session_id, aes_key, session_file)
         
-        current_app.add_background_task(wait_for_login, qr_obj, session_id)
+        await db.create_pending_session(session_id, aes_key)
+        current_app.add_background_task(wait_for_login, qr_obj, session_id, client)
 
         img = qrcode.make(qr_obj.url)
         buf = BytesIO()
@@ -93,14 +110,16 @@ async def qr_init():
 
     except (ConnectionError, asyncio.TimeoutError, asyncio.IncompleteReadError) as e: raise e
     except Exception as e:
-        current_app.logger.error(f"QR Init Critical Error: {e}", exc_info=True)
+        current_app.logger.error(f"QR Init Error: {e}", exc_info=True)
         return jsonify({"error": "Internal Server Error"}), 500
 
-async def wait_for_login(qr_obj, session_id):
+async def wait_for_login(qr_obj, session_id, client):
     try:
         await qr_obj.wait()
-        await db.activate_session(session_id)
-        current_app.logger.info(f"Session {session_id} successfully authorized!")
+        session_str = client.session.save()
+        await db.save_session_string(session_id, session_str)
+        
+        current_app.logger.info(f"Session {session_id} successfully authorized to DB!")
     except (ConnectionError, asyncio.TimeoutError, asyncio.IncompleteReadError) as e:
         current_app.logger.warning(f"Network drop while waiting for QR (0 bytes): {e}")
         proxy_manager.trigger_rebalance()
@@ -112,6 +131,40 @@ async def wait_for_login(qr_obj, session_id):
         if session_id in active_clients:
             await active_clients[session_id].disconnect()
             del active_clients[session_id]
+
+@bp_client.route("/logout", methods=["POST"])
+async def logout():
+    session_id = request.args.get("session_id")
+    aes_key_hex = request.headers.get("X-AES-Key")
+    
+    if not session_id or not aes_key_hex:
+        return jsonify({"error": "Missing session_id or aes_key"}), 400
+
+    session_data = await db.get_session_data(session_id)
+    if not session_data:
+        return jsonify({"error": "Session not found or already deleted"}), 404
+
+    db_aes_key = session_data[0]
+    if aes_key_hex != db_aes_key.hex():
+        current_app.logger.warning(f"Unauthorized logout attempt for {session_id}")
+        return jsonify({"error": "Unauthorized: Invalid AES key"}), 403
+
+    client = await get_client(session_id, session_data)
+    if client:
+        try:
+            async with session_locks[session_id]:
+                await client.log_out()
+        except Exception as e:
+            current_app.logger.warning(f"Telegram server logout failed, wiping locally anyway: {e}")
+
+    await db.delete_session(session_id)
+    if session_id in active_clients:
+        del active_clients[session_id]
+    if session_id in session_locks:
+        del session_locks[session_id]
+
+    current_app.logger.info(f"Session {session_id} successfully terminated and wiped.")
+    return jsonify({"status": "success", "message": "Session securely terminated"})
 
 async def validate_input(*required_args):
     session_id = request.args.get("session_id")
@@ -131,9 +184,12 @@ async def validate_input(*required_args):
     if not client:
         return None, await make_response(jsonify({"error": "Not authorized"}), 401)
     
-    try: is_auth = await client.is_user_authorized()
+    try:
+        async with session_locks[session_id]:
+            is_auth = await client.is_user_authorized()
+            
     except (ConnectionError, asyncio.TimeoutError, asyncio.IncompleteReadError) as e:
-        current_app.logger.error(f"MTProto connection error (possibly proxy failure?): {e}")
+        current_app.logger.error(f"MTProto connection error: {e}")
         proxy_manager.trigger_rebalance()
         if session_id in active_clients:
             del active_clients[session_id]
@@ -142,6 +198,7 @@ async def validate_input(*required_args):
     if not is_auth:
         return None, await make_response(jsonify({"error": "Not authorized"}), 401)
     
+    current_app.add_background_task(db.update_last_used, session_id)
     return (client, session_data, args), None
 
 async def ensure_connection(client):

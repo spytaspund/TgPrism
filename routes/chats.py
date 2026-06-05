@@ -20,7 +20,7 @@ def get_chat_type(dialog):
 def seen_online(status):
     match status:
         case UserStatusOnline():               return {"type": 0, "seenOnline": 0}
-        case UserStatusOffline(was_online=dt): return {"type": 4, "seenOnline": int(dt.timestamp())}
+        case UserStatusOffline(was_online=dt): return {"type": 4, "seenOnline": int(dt.timestamp()) if dt else 0}
         case UserStatusRecently():             return {"type": 1, "seenOnline": 0}
         case UserStatusLastWeek():             return {"type": 2, "seenOnline": 0}
         case UserStatusLastMonth():            return {"type": 3, "seenOnline": 0}
@@ -61,21 +61,23 @@ async def get_about(entity, client):
 
     try:
         if is_user:
+            input_entity = await client.get_input_entity(entity)
             tasks = [
-                client(GetFullUserRequest(entity)),
-                client(GetSavedMusicRequest(id=entity, offset=0, limit=10, hash=0))
+                client(GetFullUserRequest(id=input_entity)),
+                client(GetSavedMusicRequest(id=input_entity, offset=0, limit=10, hash=0))
             ]
             responses = await gather(*tasks, return_exceptions=True)
-            
-            if not isinstance(responses[0], Exception):
-                full_u = responses[0].full_user
+            res_user = responses[0]
+            if not isinstance(res_user, BaseException) and hasattr(res_user, "full_user"):
+                full_u = res_user.full_user
                 results["bio"] = full_u.about or ""
                 
                 pc_id = getattr(full_u, "personal_channel_id", None)
                 if pc_id: results["profileChannel"] = await fetch_private_channel(client, pc_id)
 
-            if not isinstance(responses[1], Exception):
-                for doc in getattr(responses[1], "documents", []):
+            res_music = responses[1]
+            if not isinstance(res_music, BaseException) and hasattr(res_music, "documents"):
+                for doc in res_music.documents:
                     audio = next((a for a in doc.attributes if isinstance(a, DocumentAttributeAudio)), None)
                     if audio:
                         results["profileMusic"].append({
@@ -139,7 +141,8 @@ async def get_chats():
     res = await validate_input("session_id")
     if res[1]: return res[1]
     data = res[0]
-    
+    assert data is not None
+
     client, session_data, args = data
     aes_key = session_data[0]
     session_id = request.args.get("session_id")
@@ -160,7 +163,7 @@ async def get_chats():
             offset_date -= timedelta(microseconds=1)
             
         except Exception as e:
-            current_app.logger.error(f"ERROR DECODING DATE!! {e} | Original: '{offset_date_str}'")
+            current_app.logger.error(f"Error decoding date ({offset_date_str})! {e}")
             offset_date = None
 
     try:

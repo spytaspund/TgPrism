@@ -21,32 +21,52 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
                 aes_key BLOB NOT NULL,
-                tg_session_file TEXT NOT NULL,
-                is_active INTEGER DEFAULT 0
+                session_string TEXT,
+                last_used INTEGER DEFAULT (strftime('%s','now'))
             )
         """)
         await db.commit()
 
-async def create_pending_session(session_id: str, aes_key: bytes, tg_session_file: str):
+async def create_pending_session(session_id: str, aes_key: bytes):
     async with get_db() as db:
         await db.execute(
-            "INSERT INTO sessions (session_id, aes_key, tg_session_file, is_active) VALUES (?, ?, ?, 0)",
-            (session_id, aes_key, tg_session_file)
+            "INSERT INTO sessions (session_id, aes_key) VALUES (?, ?)",
+            (session_id, aes_key)
         )
         await db.commit()
 
-async def activate_session(session_id: str):
+async def save_session_string(session_id: str, session_str: str):
     async with get_db() as db:
-        await db.execute("UPDATE sessions SET is_active = 1 WHERE session_id = ?", (session_id,))
+        await db.execute(
+            "UPDATE sessions SET session_string = ?, last_used = (strftime('%s','now')) WHERE session_id = ?",
+            (session_str, session_id)
+        )
         await db.commit()
 
 async def get_session_data(session_id: str):
     async with get_db() as db:
         async with db.execute(
-            "SELECT aes_key, tg_session_file FROM sessions WHERE session_id = ? AND is_active = 1", 
+            "SELECT aes_key, session_string FROM sessions WHERE session_id = ? AND session_string IS NOT NULL", 
             (session_id,)
         ) as cursor:
             row = await cursor.fetchone()
             if row:
-                return (row["aes_key"], row["tg_session_file"])
+                return (row["aes_key"], row["session_string"])
             return None
+
+async def update_last_used(session_id: str):
+    async with get_db() as db:
+        await db.execute("UPDATE sessions SET last_used = (strftime('%s','now')) WHERE session_id = ?", (session_id,))
+        await db.commit()
+
+async def delete_session(session_id: str): # manual logout via /logout route
+    async with get_db() as db:
+        await db.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        await db.commit()
+
+async def cleanup_old_sessions(days_inactive: int = 30): # automatic logout via garbage collector
+    seconds_in_day = 86400
+    threshold = days_inactive * seconds_in_day
+    async with get_db() as db:
+        await db.execute("DELETE FROM sessions WHERE last_used < (strftime('%s','now') - ?)", (threshold,))
+        await db.commit()
