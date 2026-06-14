@@ -1,7 +1,8 @@
 from quart import Blueprint, Response, request, jsonify, send_file, current_app, make_response
 from telethon.tl.types import (
     MessageMediaPhoto, MessageMediaDocument,
-    MessageMediaPoll, DocumentAttributeSticker, DocumentAttributeAudio, Document
+    MessageMediaPoll, DocumentAttributeSticker, 
+    DocumentAttributeAudio, DocumentAttributeVideo, Document
 )
 from PIL import Image
 from telethon.helpers import TotalList
@@ -38,6 +39,7 @@ def get_message_types(message, session_id=None):
             "emoji": "",
             "isAnimated": False,
             "isVideo": False,
+            "isVoice": False,
             "duration": 0,
             "title": "",
             "performer": ""
@@ -76,18 +78,32 @@ def get_message_types(message, session_id=None):
                         message_data["mediaInfo"]["isVideo"] = message_data["mediaInfo"]["mimeType"] == "video/webm"
                         message_data["mediaInfo"]["hasThumb"] = True
                         break
+                        
                     elif isinstance(attr, DocumentAttributeAudio):
                         is_audio = True
                         message_data["type"] = "audio"
-                        message_data["mediaInfo"]["duration"] = getattr(attr, "duration", 0)
+                        message_data["mediaInfo"]["duration"] = int(getattr(attr, "duration", 0))
                         message_data["mediaInfo"]["title"] = str(getattr(attr, "title", "Untitled"))
                         message_data["mediaInfo"]["performer"] = str(getattr(attr, "performer", "Unknown"))
                         if getattr(attr, "voice", False):
                             message_data["type"] = "voice"
+                            message_data["mediaInfo"]["isVoice"] = True
                         break
+                        
+                    elif isinstance(attr, DocumentAttributeVideo):
+                        message_data["mediaInfo"]["isVideo"] = True
+                        message_data["mediaInfo"]["duration"] = int(getattr(attr, "duration", 0))
+                        message_data["mediaInfo"]["hasThumb"] = True
+                        if getattr(attr, "round_message", False):
+                            message_data["type"] = "videoNote"
+                        else:
+                            message_data["type"] = "video"
+                        break
+                        
                     elif hasattr(attr, "file_name"):
                         message_data["mediaInfo"]["fileName"] = attr.file_name
-                if not is_sticker and not is_audio and not message_data["mediaInfo"]["fileName"]:
+                        
+                if not is_sticker and not is_audio and not message_data["mediaInfo"]["isVideo"] and not message_data["mediaInfo"]["fileName"]:
                     message_data["mediaInfo"]["fileName"] = "document"
             case _: pass
 
@@ -175,7 +191,7 @@ async def get_avatar():
 
 @bp_messages.route("/get_media", methods=["GET"])
 async def get_media():
-    res = await validate_input("session_id") # other args is optional!
+    res = await validate_input("session_id")
     if res[1]: return res[1]
     
     data = res[0]
@@ -191,7 +207,6 @@ async def get_media():
     thumb = request.args.get("thumb") is not None
     token = request.args.get("token")
 
-    image_buf = io.BytesIO()
     user_id = None
     media = None
     is_sticker = False
@@ -209,11 +224,12 @@ async def get_media():
                 saved_music = await client(functions.users.GetSavedMusicRequest(
                     id=user_id, offset=0, limit=20, hash=0
                 ))
-                media = next((doc for doc in getattr(saved_music, "documents", []) if str(doc.id) == str(music_id)), None)
+                media = next((d for d in getattr(saved_music, "documents", []) if str(d.id) == str(music_id)), None)
             except Exception as e:
                 return jsonify({"error": f"Failed to fetch profile music: {e}"}), 400
         elif message_id and chat_id:
-            if token != get_media_token(session_id, int(message_id)): return await make_response("Forbidden", 403)
+            if token != get_media_token(session_id, int(message_id)): 
+                return await make_response("Forbidden", 403)
             result = await client.get_messages(int(chat_id), ids=int(message_id))
             message = result[0] if isinstance(result, TotalList) else result
             if message and hasattr(message, "media"): media = message.media
@@ -226,35 +242,79 @@ async def get_media():
         if is_sticker: thumb = True
         
         if thumb:
+            image_buf = io.BytesIO()
             thumbs = getattr(media, "thumbs", None) or getattr(media, "sizes", None)
             if not thumbs and doc: thumbs = getattr(doc, "thumbs", None)
 
             if thumbs:
-                if len(thumbs) > 1: target_thumb = thumbs[1]
-                else:               target_thumb = thumbs[0]
+                target_thumb = thumbs[1] if len(thumbs) > 1 else thumbs[0]
                 await client.download_media(media, file=image_buf, thumb=target_thumb)
             else:
                 if isinstance(media, MessageMediaPhoto): await client.download_media(media, file=image_buf, thumb=1) 
-                else:                                    return jsonify({"error": "No thumb available"}), 404
-        else: await client.download_media(media, file=image_buf)
+                else: return jsonify({"error": "No thumb available"}), 404
             
-        image_buf.seek(0)
-        if thumb:
+            image_buf.seek(0)
             try:
                 img = Image.open(image_buf)
                 png_buf = io.BytesIO()
-                if img.mode != "RGBA":
-                    img = img.convert("RGBA")
+                if img.mode != "RGBA": img = img.convert("RGBA")
                 img.save(png_buf, format="PNG")
                 png_buf.seek(0)
                 return await send_file(png_buf, mimetype="image/png")
             except Exception as e:
                 current_app.logger.error(f"PNG Conversion failed: {e}")
                 image_buf.seek(0)
+                return await send_file(image_buf, mimetype="image/jpeg")
 
-        mime = "application/octet-stream"
-        if doc and hasattr(doc, "mime_type"): mime = getattr(doc, "mime_type")
-        return await send_file(image_buf, mimetype=mime)
+        file_size = getattr(doc, "size", 0) if doc else 0
+        if not file_size and isinstance(media, MessageMediaPhoto):
+            image_buf = io.BytesIO()
+            await client.download_media(media, file=image_buf)
+            image_buf.seek(0)
+            return await send_file(image_buf, mimetype="image/jpeg")
+
+        mime = getattr(doc, "mime_type", "application/octet-stream") if doc else "application/octet-stream"
+        range_header = request.headers.get("Range")
+
+        if range_header and file_size:
+            byte_range = range_header.replace("bytes=", "").split("-")
+            start = int(byte_range[0]) if byte_range[0] else 0
+            end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+
+            if start >= file_size:
+                return Response(status=416, headers={"Content-Range": f"bytes */{file_size}"})
+
+            length = end - start + 1
+
+            async def generate_chunked():
+                downloaded = 0
+                async for chunk in client.iter_download(media, offset=start):
+                    chunk_len = len(chunk)
+                    if downloaded + chunk_len > length:
+                        yield chunk[:length - downloaded]
+                        break
+                    yield chunk
+                    downloaded += chunk_len
+
+            headers = {
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(length),
+                "Content-Type": mime
+            }
+            return Response(generate_chunked(), status=206, headers=headers)
+        
+        else:
+            async def generate_full():
+                async for chunk in client.iter_download(media):
+                    yield chunk
+
+            headers = {
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(file_size) if file_size else None,
+                "Content-Type": mime
+            }
+            return Response(generate_full(), status=200, headers=headers)
 
     except Exception as e:
         current_app.logger.error(f"Media download failed: {str(e)}")
