@@ -165,7 +165,6 @@ async def get_avatar():
         if not result: return jsonify({"error": "no_avatar"}), 404
             
         output.seek(0)
-        # avatar resize logic to not fry device's CPU trying to fit 256x256 avatar in 35x35 UIImageView
         if size:
             try:
                 target_size = int(size)
@@ -191,7 +190,7 @@ async def get_avatar():
 
 @bp_messages.route("/get_media", methods=["GET"])
 async def get_media():
-    res = await validate_input("session_id")
+    res = await validate_input("session_id") 
     if res[1]: return res[1]
     
     data = res[0]
@@ -286,9 +285,23 @@ async def get_media():
 
             length = end - start + 1
 
+            CHUNK_SIZE = 524288
+            aligned_start = (start // CHUNK_SIZE) * CHUNK_SIZE
+            skip_bytes = start - aligned_start
+
             async def generate_chunked():
                 downloaded = 0
-                async for chunk in client.iter_download(media, offset=start):
+                skipped = 0
+                
+                async for chunk in client.iter_download(media, offset=aligned_start, request_size=CHUNK_SIZE):
+                    if skipped < skip_bytes:
+                        if skipped + len(chunk) <= skip_bytes:
+                            skipped += len(chunk)
+                            continue
+                        else:
+                            chunk = chunk[skip_bytes - skipped:]
+                            skipped = skip_bytes
+                    
                     chunk_len = len(chunk)
                     if downloaded + chunk_len > length:
                         yield chunk[:length - downloaded]
@@ -303,7 +316,6 @@ async def get_media():
                 "Content-Type": mime
             }
             return Response(generate_chunked(), status=206, headers=headers)
-        
         else:
             async def generate_full():
                 async for chunk in client.iter_download(media):
@@ -348,8 +360,60 @@ async def send_message():
             "date": message.date.isoformat() if message.date else None
         }
     except Exception as e:
-        current_app.logger.error(f"ERROR SEINDING MESSAGE: {str(e)}")
+        current_app.logger.error(f"Error sending message: {str(e)}")
         response_data = {"error": str(e)}
 
+    binary_payload = encrypt_binary(response_data, aes_key)
+    return Response(binary_payload, mimetype="application/octet-stream")
+
+@bp_messages.route("/send_media", methods=["POST"])
+async def send_media():
+    res = await validate_input("session_id", "chat_id")
+    if res[1]: return res[1]
+    data = res[0]
+    assert data is not None
+    client, session_data, args = data
+    
+    chat_id = args["chat_id"]
+    aes_key = session_data[0]
+    
+    form = await request.form
+    files = await request.files
+    
+    file_obj = files.get("file")
+    if not file_obj:
+        return jsonify({"error": "No file uploaded"}), 400
+        
+    file_bytes = io.BytesIO(file_obj.read())
+    file_bytes.name = file_obj.filename or "file.ext"
+    
+    caption = form.get("caption", "")
+    # expecting: photo, document, voice, videoNote, video
+    media_type = form.get("type", "document")
+    
+    force_document = media_type == "document"
+    voice_note = media_type == "voice"
+    video_note = media_type == "videoNote"
+    is_video = media_type == "video"
+    
+    try:
+        message = await client.send_file(
+            int(chat_id),
+            file=file_bytes,
+            caption=caption,
+            force_document=force_document,
+            voice_note=voice_note,
+            video_note=video_note,
+            is_video=is_video
+        )
+        response_data = {
+            "status": "ok",
+            "id": message.id,
+            "date": message.date.isoformat() if message.date else None
+        }
+    except Exception as e:
+        current_app.logger.error(f"Error sending media: {e}")
+        response_data = {"error": str(e)}
+        
     binary_payload = encrypt_binary(response_data, aes_key)
     return Response(binary_payload, mimetype="application/octet-stream")

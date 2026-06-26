@@ -28,31 +28,34 @@ class ProxyManager:
 
     async def get_proxies_from_sub(self) -> list:
         if not cfg.SINGBOX_SUB: return []
-        try:
-            clean_url = cfg.SINGBOX_SUB.replace("\n", "").replace("\r", "").strip() # sanitize url
-            current_app.logger.info(f"Downloading subscription: '{clean_url}' (Len: {len(clean_url)})")
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(cfg.SINGBOX_SUB)
-                text = resp.text
-            
-            if not any(proto in text for proto in self.supported_protocols):
-                try: text = base64.b64decode(text).decode('utf-8')
-                except Exception: pass
+        
+        sub_urls = [s.strip() for s in str(cfg.SINGBOX_SUB).replace("\n", ",").replace("\r", "").split(",") if s.strip()]
+        all_urls = []
 
-            urls = []
-            for line in text.splitlines():
-                line = line.strip()
-                if any(line.startswith(proto) for proto in self.supported_protocols):
-                    line = line.replace("xtls-rprx-vision-udp443", "xtls-rprx-vision") # lib doesn't support it
-                    if "vision" in line: continue # doesn't work well with MTProto
-                    if "plugin=" in line: continue # yeah also has issues
-                    urls.append(line)
-            
-            current_app.logger.info(f"Found {len(urls)} potential servers")
-            return urls
-        except Exception as e:
-            current_app.logger.error(f"Subscription download failed: {e}")
-            return []
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for sub_url in sub_urls:
+                try:
+                    current_app.logger.info(f"Downloading subscription: '{sub_url}'")
+                    resp = await client.get(sub_url)
+                    text = resp.text
+                    
+                    if not any(proto in text for proto in self.supported_protocols):
+                        try: text = base64.b64decode(text).decode('utf-8')
+                        except Exception: pass
+
+                    for line in text.splitlines():
+                        line = line.strip()
+                        if any(line.startswith(proto) for proto in self.supported_protocols):
+                            line = line.replace("xtls-rprx-vision-udp443", "xtls-rprx-vision")
+                            if "vision" in line: continue
+                            if "plugin=" in line: continue
+                            all_urls.append(line)
+                except Exception as e:
+                    current_app.logger.error(f"Failed to fetch {sub_url}: {e}")
+        
+        unique_urls = list(set(all_urls))
+        current_app.logger.info(f"Found {len(unique_urls)} total unique servers from {len(sub_urls)} subscriptions")
+        return unique_urls
 
     async def check_telegram(self, proxy_url: str) -> float:
         start = time.perf_counter()
@@ -109,7 +112,7 @@ class ProxyManager:
         best_url, best_ping = results[0]
         
         if self.active_proxy:
-            current_ping = await self.check_telegram(str(self.active_proxy.socks5_proxy_url)) # pylance you ok? ok? hai? hello?
+            current_ping = await self.check_telegram(str(self.active_proxy.socks5_proxy_url))
             self.best_latency = current_ping
             
             if current_ping < 450:

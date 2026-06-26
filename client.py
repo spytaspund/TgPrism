@@ -7,6 +7,7 @@ from collections import defaultdict
 from quart import Blueprint, send_file, current_app, request, jsonify, make_response
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+from telethon.errors import SessionPasswordNeededError
 from sqlite3 import OperationalError
 from config import Config
 from connection import ProxyManager
@@ -118,19 +119,90 @@ async def wait_for_login(qr_obj, session_id, client):
         await qr_obj.wait()
         session_str = client.session.save()
         await db.save_session_string(session_id, session_str)
-        
         current_app.logger.info(f"Session {session_id} successfully authorized to DB!")
-    except (ConnectionError, asyncio.TimeoutError, asyncio.IncompleteReadError) as e:
-        current_app.logger.warning(f"Network drop while waiting for QR (0 bytes): {e}")
-        proxy_manager.trigger_rebalance()
-        if session_id in active_clients:
-            await active_clients[session_id].disconnect()
-            del active_clients[session_id]
     except Exception as e:
         current_app.logger.error(f"Wait for login failed for {session_id}: {e}")
         if session_id in active_clients:
             await active_clients[session_id].disconnect()
             del active_clients[session_id]
+
+@bp_client.route("/auth/phone", methods=["POST"])
+async def auth_phone():
+    data = await request.get_json()
+    phone = data.get("phone")
+    if not phone: return jsonify({"error": "Missing phone"}), 400
+
+    session_id = str(uuid.uuid4())
+    aes_key = os.urandom(16)
+    
+    client_args = {
+        "session": StringSession(),
+        "api_id": cfg.API_ID,
+        "api_hash": cfg.API_HASH,
+    }
+    proxy = proxy_manager.get_telethon_proxy()
+    if proxy: client_args['proxy'] = proxy
+
+    client = TelegramClient(**client_args)
+    if not await ensure_connection(client):
+        return jsonify({"error": "Connection to Telegram failed"}), 503
+
+    try:
+        sent = await client.send_code_request(phone)
+        active_clients[session_id] = client
+        await db.create_pending_session(session_id, aes_key)
+        
+        return jsonify({
+            "session_id": session_id,
+            "aes_key": aes_key.hex(),
+            "phone_code_hash": sent.phone_code_hash
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@bp_client.route("/auth/code", methods=["POST"])
+async def auth_code():
+    data = await request.get_json()
+    session_id = data.get("session_id")
+    phone = data.get("phone")
+    code = data.get("code")
+    phone_code_hash = data.get("phone_code_hash")
+
+    if not all([session_id, phone, code, phone_code_hash]):
+        return jsonify({"error": "Missing parameters"}), 400
+
+    client = active_clients.get(session_id)
+    if not client: return jsonify({"error": "Session expired or invalid"}), 404
+
+    try:
+        await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
+        session_str = client.session.save()
+        await db.save_session_string(session_id, session_str)
+        return jsonify({"status": "ok"})
+    except SessionPasswordNeededError:
+        return jsonify({"status": "requires_2fa"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+@bp_client.route("/auth/password", methods=["POST"])
+async def auth_password():
+    data = await request.get_json()
+    session_id = data.get("session_id")
+    password = data.get("password")
+
+    if not session_id or not password:
+        return jsonify({"error": "Missing parameters"}), 400
+
+    client = active_clients.get(session_id)
+    if not client: return jsonify({"error": "Session expired or invalid"}), 404
+
+    try:
+        await client.sign_in(password=password)
+        session_str = client.session.save()
+        await db.save_session_string(session_id, session_str)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 @bp_client.route("/logout", methods=["POST"])
 async def logout():
