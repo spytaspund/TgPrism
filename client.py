@@ -8,6 +8,7 @@ from quart import Blueprint, send_file, current_app, request, jsonify, make_resp
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError
+from telethon.network import ConnectionTcpMTProxyRandomizedIntermediate
 from sqlite3 import OperationalError
 from config import Config
 from connection import ProxyManager
@@ -49,16 +50,21 @@ async def get_client(session_id, session_data=None):
             return None
 
         session_str = session_data[1]
-        client_proxy = proxy_manager.get_telethon_proxy()
         client_args = {
             "session": StringSession(session_str),
             "api_id": cfg.API_ID,
             "api_hash": cfg.API_HASH,
-            "connection_retries": 0,
-            "retry_delay": 0,
-            "auto_reconnect": False
+            "connection_retries": 3, 
+            "retry_delay": 1,
+            "auto_reconnect": True
         }
-        if client_proxy: client_args["proxy"] = client_proxy
+
+        proxy = proxy_manager.get_telethon_proxy()
+        if proxy:
+            client_args['proxy'] = proxy
+            if cfg.PROXY_TYPE == "mtproto":
+                client_args['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
+        
         client = TelegramClient(**client_args)
         
         if await ensure_connection(client):
@@ -77,12 +83,15 @@ async def qr_init():
         "session": StringSession(),
         "api_id": cfg.API_ID,
         "api_hash": cfg.API_HASH,
-        "connection_retries": 0,
-        "retry_delay": 0,
-        "auto_reconnect": False
+        "connection_retries": 3,
+        "retry_delay": 1,
+        "auto_reconnect": True
     }
     proxy = proxy_manager.get_telethon_proxy()
-    if proxy: client_args['proxy'] = proxy
+    if proxy:
+        client_args['proxy'] = proxy
+        if cfg.PROXY_TYPE == "mtproto":
+            client_args['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
 
     client = TelegramClient(**client_args)
 
@@ -139,9 +148,15 @@ async def auth_phone():
         "session": StringSession(),
         "api_id": cfg.API_ID,
         "api_hash": cfg.API_HASH,
+        "connection_retries": 3,
+        "retry_delay": 1,
+        "auto_reconnect": True
     }
     proxy = proxy_manager.get_telethon_proxy()
-    if proxy: client_args['proxy'] = proxy
+    if proxy:
+        client_args['proxy'] = proxy
+        if cfg.PROXY_TYPE == "mtproto":
+            client_args['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
 
     client = TelegramClient(**client_args)
     if not await ensure_connection(client):

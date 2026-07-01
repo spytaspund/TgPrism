@@ -16,11 +16,22 @@ class ProxyManager:
         self._last_balance_time = 0.0
         self.is_balancing = False
 
-    def get_telethon_proxy(self) -> dict[str, Any] | None:
+    def get_telethon_proxy(self) -> dict[str, Any] | tuple | None:
         if cfg.PROXY_TYPE == "off": return None
         addr = "127.0.0.1" if cfg.PROXY_TYPE == "local" else cfg.PROXY_ADDR
+        
+        if cfg.PROXY_TYPE == "mtproto":
+            return (addr, cfg.PROXY_PORT, cfg.PROXY_SECRET)
+            
+        proxy_type_map = {
+            "local": "socks5",
+            "socks": "socks5",
+            "socks5": "socks5",
+            "http": "http"
+        }
+        
         return {
-            'proxy_type': 'socks5',
+            'proxy_type': proxy_type_map.get(cfg.PROXY_TYPE, "socks5"),
             'addr': addr,
             'port': cfg.PROXY_PORT,
             'rdns': True

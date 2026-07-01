@@ -9,6 +9,7 @@ decryptor.py
 *.session
 *.session-journal
 sessions/
+docker-compose.yml
 
 __pycache__/
 **/__pycache__/
