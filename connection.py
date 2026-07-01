@@ -93,6 +93,7 @@ class ProxyManager:
             async def worker(proxy_instance):
                 async with concurrency_limit:
                     try:
+                        current_app.logger.debug(f"Checking {proxy_instance.socks_url}")
                         latency = await self.check_telegram(proxy_instance.socks_url)
                         if latency < 2000:
                             return proxy_instance.url, latency
