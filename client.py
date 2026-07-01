@@ -275,20 +275,20 @@ async def validate_input(*required_args):
 
 async def ensure_connection(client):
     if client.is_connected(): return True
-    for attempt in range(3):
+    
+    for attempt in range(2):
         try:
-            await asyncio.wait_for(client.connect(), timeout=8)
+            await asyncio.wait_for(client.connect(), timeout=5)
             return True
         except (OSError, asyncio.TimeoutError, OperationalError) as e:
             current_app.logger.warning(f"Connection attempt {attempt+1} failed: {e}")
             
-            current_app.logger.info("Connection failed! Switching proxy...")
             new_proxy = proxy_manager.get_telethon_proxy()
             if new_proxy:
                 client.set_proxy(new_proxy)
             
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(0.5)
 
-    current_app.logger.error("All connection attempts failed. Starting rebalance...")
-    proxy_manager.trigger_rebalance()
+    current_app.logger.error("All connection attempts failed. Forcing rebalance...")
+    proxy_manager.trigger_rebalance(force=True)
     return False

@@ -61,17 +61,12 @@ class ProxyManager:
         start = time.perf_counter()
         try:
             timeout = httpx.Timeout(connect=5.0, read=4.0, write=2.0, pool=1.5)
-            async with httpx.AsyncClient(
-                proxy=proxy_url, 
-                timeout=timeout, 
-                verify=False
-            ) as client:
-                task = client.head("https://api.telegram.org/bot/getMe")
-                resp = await asyncio.wait_for(task, timeout=5.0) 
-                if resp.status_code < 500:
+            async with httpx.AsyncClient(proxy=proxy_url, timeout=timeout, verify=False) as client:
+                resp = await client.get("https://api.telegram.org/bot/getMe")
+                if resp.status_code in (401, 404) and "ok" in resp.text:
                     return (time.perf_counter() - start) * 1000
-        except Exception as e:
-            current_app.logger.error(f"Proxy {proxy_url} failed: {e}")
+        except Exception:
+            pass
         return 9999.0
 
     async def run_balancer_cycle(self):
@@ -150,9 +145,10 @@ class ProxyManager:
         except Exception as e:
             current_app.logger.error(f"Failed to switch proxy: {e}")
     
-    def trigger_rebalance(self) -> bool:
+    def trigger_rebalance(self, force: bool = False) -> bool:
         if cfg.PROXY_TYPE != "local": return False
-        if self.is_balancing or (time.time() - self._last_balance_time < 45):
+        if self.is_balancing: return False
+        if not force and (time.time() - self._last_balance_time < 45):
             return False
             
         self._rebalance_event.set()
