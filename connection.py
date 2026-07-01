@@ -60,18 +60,18 @@ class ProxyManager:
     async def check_telegram(self, proxy_url: str) -> float:
         start = time.perf_counter()
         try:
-            timeout = httpx.Timeout(connect=3.0, read=3.0, write=2.0, pool=1.5)
+            timeout = httpx.Timeout(connect=5.0, read=4.0, write=2.0, pool=1.5)
             async with httpx.AsyncClient(
                 proxy=proxy_url, 
                 timeout=timeout, 
                 verify=False
             ) as client:
                 task = client.head("https://api.telegram.org/bot/getMe")
-                resp = await asyncio.wait_for(task, timeout=1.5)
+                resp = await asyncio.wait_for(task, timeout=5.0) 
                 if resp.status_code < 500:
                     return (time.perf_counter() - start) * 1000
         except Exception as e:
-            current_app.logger.error(f"Proxy {proxy_url[:20]} failed: {e}")
+            current_app.logger.error(f"Proxy {proxy_url} failed: {e}")
         return 9999.0
 
     async def run_balancer_cycle(self):
@@ -82,6 +82,10 @@ class ProxyManager:
             return
 
         results = []
+        test_batch_size = 50 
+        batch = SingBoxBatch(urls, batch_size=test_batch_size)
+        concurrency_limit = asyncio.Semaphore(25)
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -89,26 +93,26 @@ class ProxyManager:
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             console=current_app.config.get('CONSOLE')
         ) as progress:
-            test_batch_size = 20
             task = progress.add_task(f"[cyan]Parallel testing ({len(urls)} proxies)...", total=len(urls))
-            batch = SingBoxBatch(urls, batch_size=test_batch_size)
+            
             async def worker(proxy_instance):
-                try:
-                    latency = await self.check_telegram(proxy_instance.socks_url)
-                    if latency < 1500:
-                        progress.advance(task)
-                        return proxy_instance.url, latency
-                except Exception as e:
-                    current_app.logger.error(f"Worker crashed for {proxy_instance.url[:15]}: {e}")
-                
+                async with concurrency_limit:
+                    try:
+                        latency = await self.check_telegram(proxy_instance.socks_url)
+                        if latency < 2000:
+                            return proxy_instance.url, latency
+                    except Exception as e:
+                        current_app.logger.error(f"Worker crashed for {proxy_instance.socks_url}: {e}")
+                    
+                    return None, 9999.0
+            check_tasks = [asyncio.create_task(worker(p)) for p in batch]
+            
+            for f in asyncio.as_completed(check_tasks):
+                url, latency = await f
                 progress.advance(task)
-                return None, 9999.0
-
-            check_tasks = [worker(p) for p in batch]
-            checked_results = await asyncio.gather(*check_tasks)
-            for url, latency in checked_results:
-                if latency < 2000:
+                if latency < 2000 and url:
                     results.append((url, latency))
+                    
             batch.stop()
 
         if not results:
