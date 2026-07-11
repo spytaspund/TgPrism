@@ -9,9 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && wget https://github.com/SagerNet/sing-box/releases/download/v1.14.0-alpha.43/sing-box-1.14.0-alpha.43-linux-amd64.tar.gz \
     && tar -xvf sing-box-1.14.0-alpha.43-linux-amd64.tar.gz \
-    && mv sing-box-1.13.11-linux-amd64/sing-box /usr/local/bin/ \
+    && mv sing-box-1.14.0-alpha.43-linux-amd64/sing-box /usr/local/bin/ \
     && chmod +x /usr/local/bin/sing-box \
-    && rm -rf sing-box-1.13.11-linux-amd64* \
+    && rm -rf sing-box-1.14.0-alpha.43-linux-amd64* \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
