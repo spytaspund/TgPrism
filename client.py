@@ -56,7 +56,7 @@ async def get_client(session_id, session_data=None):
             "api_hash": cfg.API_HASH,
             "connection_retries": 3, 
             "retry_delay": 1,
-            "auto_reconnect": True
+            "auto_reconnect": False
         }
 
         proxy = proxy_manager.get_telethon_proxy()
@@ -85,13 +85,13 @@ async def qr_init():
         "api_hash": cfg.API_HASH,
         "connection_retries": 3,
         "retry_delay": 1,
-        "auto_reconnect": True
+        "auto_reconnect": False
     }
     proxy = proxy_manager.get_telethon_proxy()
     if proxy:
         client_args['proxy'] = proxy
         if cfg.PROXY_TYPE == "mtproto":
-            client_args['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
+                client_args['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
 
     client = TelegramClient(**client_args)
 
@@ -135,7 +135,7 @@ async def wait_for_login(qr_obj, session_id, client):
             await active_clients[session_id].disconnect()
             del active_clients[session_id]
 
-@bp_client.route("/auth/phone", methods=["POST"])
+@bp_client.route("/phone", methods=["POST"])
 async def auth_phone():
     data = await request.get_json()
     phone = data.get("phone")
@@ -150,13 +150,11 @@ async def auth_phone():
         "api_hash": cfg.API_HASH,
         "connection_retries": 3,
         "retry_delay": 1,
-        "auto_reconnect": True
+        "auto_reconnect": False
     }
     proxy = proxy_manager.get_telethon_proxy()
     if proxy:
         client_args['proxy'] = proxy
-        if cfg.PROXY_TYPE == "mtproto":
-            client_args['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
 
     client = TelegramClient(**client_args)
     if not await ensure_connection(client):
@@ -251,7 +249,7 @@ async def logout():
         del session_locks[session_id]
 
     current_app.logger.info(f"Session {session_id} successfully terminated and wiped.")
-    return jsonify({"status": "success", "message": "Session securely terminated"})
+    return jsonify({"status": "ok"})
 
 async def validate_input(*required_args):
     session_id = request.args.get("session_id")

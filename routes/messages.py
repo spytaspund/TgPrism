@@ -9,7 +9,7 @@ from telethon.helpers import TotalList
 from telethon import functions
 from client import validate_input
 from encryption import encrypt_binary, get_media_token, decrypt_binary
-import io
+import io, asyncio
 
 bp_messages = Blueprint("messages", __name__)
 
@@ -265,15 +265,74 @@ async def get_media():
                 image_buf.seek(0)
                 return await send_file(image_buf, mimetype="image/jpeg")
 
+        mime = getattr(doc, "mime_type", "application/octet-stream") if doc else "application/octet-stream"
+        is_voice = mime == "audio/ogg"
+
+        if is_voice:
+            ogg_buf = io.BytesIO()
+            await client.download_media(media, file=ogg_buf)
+            ogg_data = ogg_buf.getvalue()
+
+            process = await asyncio.create_subprocess_exec(
+                'ffmpeg', '-hide_banner', '-loglevel', 'error',
+                '-i', 'pipe:0',
+                '-f', 'mp3',
+                '-c:a', 'libmp3lame',
+                '-q:a', '4',
+                'pipe:1',
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate(input=ogg_data)
+
+            if process.returncode != 0:
+                current_app.logger.error(f"FFmpeg error: {stderr.decode()}")
+                return jsonify({"error": "Audio conversion failed"}), 500
+
+            converted_audio = stdout
+            file_size = len(converted_audio)
+            mime = "audio/mpeg"
+
+            async def memory_generator(start_idx, end_idx):
+                CHUNK_SIZE = 524288
+                curr = start_idx
+                while curr <= end_idx:
+                    chunk_end = min(curr + CHUNK_SIZE, end_idx + 1)
+                    yield converted_audio[curr:chunk_end]
+                    curr = chunk_end
+
+            range_header = request.headers.get("Range")
+            if range_header and file_size:
+                byte_range = range_header.replace("bytes=", "").split("-")
+                start = int(byte_range[0]) if byte_range[0] else 0
+                end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+
+                if start >= file_size:
+                    return Response(status=416, headers={"Content-Range": f"bytes */{file_size}"})
+
+                length = end - start + 1
+                headers = {
+                    "Content-Range": f"bytes {start}-{end}/{file_size}",
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(length),
+                    "Content-Type": mime
+                }
+                return Response(memory_generator(start, end), status=206, headers=headers)
+            else:
+                headers = {
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(file_size),
+                    "Content-Type": mime
+                }
+                return Response(memory_generator(0, file_size - 1), status=200, headers=headers)
+        
         file_size = getattr(doc, "size", 0) if doc else 0
         if not file_size and isinstance(media, MessageMediaPhoto):
             image_buf = io.BytesIO()
             await client.download_media(media, file=image_buf)
             image_buf.seek(0)
             return await send_file(image_buf, mimetype="image/jpeg")
-
-        mime = getattr(doc, "mime_type", "application/octet-stream") if doc else "application/octet-stream"
-        range_header = request.headers.get("Range")
 
         if range_header and file_size:
             byte_range = range_header.replace("bytes=", "").split("-")

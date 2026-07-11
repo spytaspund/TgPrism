@@ -1,11 +1,11 @@
-from quart import Quart, render_template, request, g, jsonify
+from quart import Quart, render_template, request, g
 from rich.logging import RichHandler
 from rich.console import Console
 from routes.messages import bp_messages
 from routes.chats import bp_chats
 from client import bp_client, proxy_manager
 from config import Config
-import logging, time, db, httpx, asyncio
+import logging, time, db, httpx
 
 app = Quart(__name__)
 cfg = Config()
