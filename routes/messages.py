@@ -267,7 +267,8 @@ async def get_media():
 
         mime = getattr(doc, "mime_type", "application/octet-stream") if doc else "application/octet-stream"
         is_voice = mime == "audio/ogg"
-
+        range_header = request.headers.get("Range")
+        
         if is_voice:
             ogg_buf = io.BytesIO()
             await client.download_media(media, file=ogg_buf)
@@ -302,7 +303,6 @@ async def get_media():
                     yield converted_audio[curr:chunk_end]
                     curr = chunk_end
 
-            range_header = request.headers.get("Range")
             if range_header and file_size:
                 byte_range = range_header.replace("bytes=", "").split("-")
                 start = int(byte_range[0]) if byte_range[0] else 0
